@@ -218,7 +218,9 @@ fn package_data(
         && dependencies.peer_dependencies.is_empty()
         && dependencies.bundled_dependencies.is_empty()
     {
-        return Ok(PackageData::default());
+        // An existing package.json with no dependency fields still makes every resolved
+        // external package extraneous. Only the absence of a package.json disables the rule.
+        return Ok(data);
     }
     Ok(data)
 }
@@ -533,7 +535,9 @@ fn test() {
     let monorepo = package_dir.join("monorepo");
     let pass = vec![
         (r#"import "lodash.cond""#, None),
+        (r#"import foo, { bar } from "lodash.cond""#, None),
         (r#"require("lodash.cond")"#, None),
+        (r#"var foo = require("lodash.cond")"#, None),
         (r#"export { default } from "lodash.cond""#, None),
         (r#"export * from "lodash.cond""#, None),
         (r#"import("lodash.cond")"#, None),
@@ -551,18 +555,20 @@ fn test() {
         (r#"import type T from "not-a-dependency""#, None),
         (r#"export type { T } from "not-a-dependency""#, None),
         (r#"import { type T } from "not-a-dependency""#, None),
-        (
-            r#"import "not-a-dependency""#,
-            Some(json!([{ "packageDir": package_dir.join("empty") }])),
-        ),
         (r#"import "lodash.cond""#, Some(json!([{ "packageDir": [] }]))),
         (r#"import "left-pad""#, Some(json!([{ "packageDir": ["empty", "monorepo"] }]))),
         (r#"import "eslint""#, Some(json!([{ "peerDependencies": true }]))),
         (r#"import "lodash.isarray""#, Some(json!([{ "optionalDependencies": true }]))),
         (r#"import "@generated/foo""#, Some(json!([{ "bundledDependencies": true }]))),
+        (
+            r#"import "not-a-dependency""#,
+            Some(json!([{ "packageDir": monorepo, "whitelist": ["not-a-dependency"] }])),
+        ),
     ];
     let fail = vec![
         (r#"import "not-a-dependency""#, None),
+        (r#"var donthaveit = require("@org/not-a-dependency")"#, None),
+        (r#"var donthaveit = require("@org/not-a-dependency/foo")"#, None),
         (r#"require("not-a-dependency")"#, None),
         (r#"export { default } from "not-a-dependency""#, None),
         (r#"export * from "not-a-dependency""#, None),
@@ -575,6 +581,11 @@ fn test() {
         (r#"import "jest""#, Some(json!([{ "devDependencies": ["*.js"] }]))),
         (r#"import "lodash.isarray""#, Some(json!([{ "optionalDependencies": false }]))),
         (r#"import "@generated/foo""#, Some(json!([{ "bundledDependencies": false }]))),
+        (
+            r#"var eslint = require("lodash.isarray")"#,
+            Some(json!([{ "optionalDependencies": false }])),
+        ),
+        (r#"var glob = require("glob")"#, Some(json!([{ "devDependencies": false }]))),
         (r#"import "./foo""#, Some(json!([{ "includeInternal": true }]))),
         (r#"import type T from "not-a-dependency""#, Some(json!([{ "includeTypes": true }]))),
         (r#"export type { T } from "not-a-dependency""#, Some(json!([{ "includeTypes": true }]))),
@@ -583,6 +594,7 @@ fn test() {
             r#"import "not-a-dependency""#,
             Some(json!([{ "packageDir": package_dir.join("does-not-exist") }])),
         ),
+        (r#"import "react""#, Some(json!([{ "packageDir": package_dir.join("empty") }]))),
         (r#"import "foo""#, Some(json!([{ "packageDir": package_dir.join("with-syntax-error") }]))),
     ];
 
