@@ -180,23 +180,22 @@ fn package_data(
     config: &NoExtraneousDependenciesConfig,
 ) -> Result<PackageData, PackageError> {
     let paths = config.package_dir.as_ref().map(PackageDir::paths);
-    let package_paths = match paths {
-        Some(paths) => paths
-            .into_iter()
+    let package_paths = match paths.as_deref() {
+        Some(paths) if !paths.is_empty() => paths
+            .iter()
             .map(|path| {
-                let path = if path.is_absolute() { path } else { ctx.cwd().join(path) };
+                let path = if path.is_absolute() { path.clone() } else { ctx.cwd().join(path) };
                 path.join("package.json")
             })
             .collect::<Vec<_>>(),
-        None => nearest_package_json(ctx.file_path()).into_iter().collect(),
+        _ => nearest_package_json(ctx.file_path()).into_iter().collect(),
     };
 
     if package_paths.is_empty() {
         return Ok(PackageData::default());
     }
 
-    let configured_single_path =
-        config.package_dir.as_ref().is_some_and(|dir| dir.paths().len() == 1);
+    let configured_single_path = paths.as_ref().is_some_and(|paths| paths.len() == 1);
     let mut data = PackageData::default();
     for path in package_paths {
         let result = read_package(&path);
@@ -363,15 +362,31 @@ declare_oxc_lint!(
     ///
     /// ### Examples
     ///
-    /// ```javascript
-    /// import lodash from 'lodash';
-    /// // `lodash` must be listed in dependencies, not only devDependencies.
+    /// Examples of **incorrect** code for this rule:
+    /// ```js
+    /// import lodash from 'lodash'; // not declared in package.json
+    /// import eslint from 'eslint'; // only declared in devDependencies
+    ///
+    /// const lodash = require('lodash');
+    /// export { default } from 'lodash';
     /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```js
+    /// import lodash from 'lodash'; // declared in dependencies
+    /// import './local-module.js';
+    /// import 'node:fs';
+    ///
+    /// // Test files may allow devDependencies with a glob option:
+    /// // { "devDependencies": ["**/*.test.js"] }
+    /// import eslint from 'eslint';
+    /// ```
+    // <https://github.com/import-js/eslint-plugin-import/blob/v2.32.0/docs/rules/no-extraneous-dependencies.md>
     NoExtraneousDependencies,
     import,
     restriction,
     config = NoExtraneousDependenciesConfig,
-    version = "0.0.1",
+    version = "1.43.0",
     short_description = "Forbid the use of extraneous packages.",
 );
 
@@ -520,6 +535,10 @@ fn test() {
         (r#"import "lodash.cond""#, None),
         (r#"require("lodash.cond")"#, None),
         (r#"export { default } from "lodash.cond""#, None),
+        (r#"export * from "lodash.cond""#, None),
+        (r#"import("lodash.cond")"#, None),
+        (r#"import(moduleName)"#, None),
+        (r#"require(moduleName)"#, None),
         (r#"import "fs""#, None),
         (r#"import "./foo""#, None),
         (r#"import "@generated/foo""#, None),
@@ -530,17 +549,25 @@ fn test() {
             Some(json!([{ "devDependencies": false, "peerDependencies": true }])),
         ),
         (r#"import type T from "not-a-dependency""#, None),
+        (r#"export type { T } from "not-a-dependency""#, None),
+        (r#"import { type T } from "not-a-dependency""#, None),
         (
             r#"import "not-a-dependency""#,
             Some(json!([{ "packageDir": package_dir.join("empty") }])),
         ),
+        (r#"import "lodash.cond""#, Some(json!([{ "packageDir": [] }]))),
         (r#"import "left-pad""#, Some(json!([{ "packageDir": ["empty", "monorepo"] }]))),
+        (r#"import "eslint""#, Some(json!([{ "peerDependencies": true }]))),
+        (r#"import "lodash.isarray""#, Some(json!([{ "optionalDependencies": true }]))),
+        (r#"import "@generated/foo""#, Some(json!([{ "bundledDependencies": true }]))),
     ];
     let fail = vec![
         (r#"import "not-a-dependency""#, None),
         (r#"require("not-a-dependency")"#, None),
         (r#"export { default } from "not-a-dependency""#, None),
         (r#"export * from "not-a-dependency""#, None),
+        (r#"import("not-a-dependency")"#, None),
+        (r#"import foo = require("not-a-dependency")"#, None),
         (
             r#"import "eslint""#,
             Some(json!([{ "devDependencies": false, "peerDependencies": false }])),
@@ -550,6 +577,8 @@ fn test() {
         (r#"import "@generated/foo""#, Some(json!([{ "bundledDependencies": false }]))),
         (r#"import "./foo""#, Some(json!([{ "includeInternal": true }]))),
         (r#"import type T from "not-a-dependency""#, Some(json!([{ "includeTypes": true }]))),
+        (r#"export type { T } from "not-a-dependency""#, Some(json!([{ "includeTypes": true }]))),
+        (r#"import { type T } from "not-a-dependency""#, Some(json!([{ "includeTypes": true }]))),
         (
             r#"import "not-a-dependency""#,
             Some(json!([{ "packageDir": package_dir.join("does-not-exist") }])),
