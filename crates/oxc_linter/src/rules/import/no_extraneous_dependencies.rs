@@ -5,6 +5,7 @@ use std::{
 
 use cow_utils::CowUtils;
 use fast_glob::glob_match;
+use lazy_regex::Regex;
 use nodejs_built_in_modules::is_nodejs_builtin_module;
 use oxc_ast::{
     AstKind,
@@ -14,7 +15,7 @@ use oxc_diagnostics::OxcDiagnostic;
 use oxc_macros::declare_oxc_lint;
 use oxc_resolver::{ResolveOptions, Resolver};
 use oxc_span::Span;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value;
@@ -53,18 +54,18 @@ impl BoolOrGlobs {
             Self::Bool(value) => *value,
             Self::Globs(patterns) => {
                 let file = file_path.to_string_lossy().cow_replace('\\', "/").into_owned();
-                let basename =
-                    file_path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-                let relative = file_path
-                    .strip_prefix(cwd)
-                    .map(|path| path.to_string_lossy().cow_replace('\\', "/").into_owned());
                 patterns.iter().any(|pattern| {
-                    let absolute =
+                    let cwd_pattern =
                         cwd.join(pattern).to_string_lossy().cow_replace('\\', "/").into_owned();
+                    let process_pattern = std::env::current_dir()
+                        .unwrap_or_default()
+                        .join(pattern)
+                        .to_string_lossy()
+                        .cow_replace('\\', "/")
+                        .into_owned();
                     glob_match(pattern, file.as_bytes())
-                        || glob_match(pattern, basename)
-                        || glob_match(pattern, relative.as_deref().unwrap_or_default())
-                        || glob_match(absolute.as_bytes(), file.as_bytes())
+                        || glob_match(cwd_pattern.as_bytes(), file.as_bytes())
+                        || glob_match(process_pattern.as_bytes(), file.as_bytes())
                 })
             }
         }
@@ -211,16 +212,10 @@ fn package_data(
             Err(error) => return Err(PackageError::Unparsable(error)),
         }
     }
-    let dependencies = &data.dependencies;
-    if dependencies.dependencies.is_empty()
-        && dependencies.dev_dependencies.is_empty()
-        && dependencies.optional_dependencies.is_empty()
-        && dependencies.peer_dependencies.is_empty()
-        && dependencies.bundled_dependencies.is_empty()
-    {
-        // An existing package.json with no dependency fields still makes every resolved
-        // external package extraneous. Only the absence of a package.json disables the rule.
-        return Ok(data);
+    if data.package_root.is_none() && paths.as_ref().is_some_and(|paths| !paths.is_empty()) {
+        // With multiple configured package directories, eslint-plugin-import does not report a
+        // missing package.json. It still checks imports against an empty dependency set.
+        data.package_root = Some(ctx.cwd().to_path_buf());
     }
     Ok(data)
 }
@@ -231,9 +226,14 @@ enum PackageError {
     Unparsable(String),
 }
 
-fn package_name(path: &Path) -> Option<String> {
+fn package_name(path: &Path, cache: &mut FxHashMap<PathBuf, Option<String>>) -> Option<String> {
     let package_json = nearest_package_json(path)?;
-    read_package(&package_json).ok()?.1
+    if let Some(name) = cache.get(&package_json) {
+        return name.clone();
+    }
+    let name = read_package(&package_json).ok().and_then(|(_, name)| name);
+    cache.insert(package_json, name.clone());
+    name
 }
 
 fn module_name(source: &str) -> &str {
@@ -305,6 +305,8 @@ fn package_error_diagnostic(error: PackageError) -> OxcDiagnostic {
 }
 
 fn resolve_module(ctx: &LintContext, resolver: &Resolver, source: &str) -> Option<PathBuf> {
+    // The module record uses the resolver configured for the current lint service. The fallback
+    // covers syntax forms that are not represented in the module record, such as `require()`.
     ctx.module_record()
         .get_loaded_module(source)
         .map(|module| module.resolved_absolute_path.clone())
@@ -316,8 +318,9 @@ fn resolve_module(ctx: &LintContext, resolver: &Resolver, source: &str) -> Optio
         })
 }
 
-fn is_internal(source: &str, resolved: Option<&Path>) -> bool {
-    source.starts_with('.')
+fn is_internal(source: &str, resolved: Option<&Path>, internal_regex: Option<&Regex>) -> bool {
+    internal_regex.is_some_and(|regex| regex.is_match(source))
+        || source.starts_with('.')
         || source.starts_with('/')
         || resolved.is_some_and(|path| {
             !path.components().any(|component| component.as_os_str() == "node_modules")
@@ -333,7 +336,10 @@ fn is_core_module(ctx: &LintContext, source: &str) -> bool {
             .as_ref()
             .and_then(|settings| settings.get("import-x/core-modules"))
             .and_then(Value::as_array)
-            .is_some_and(|modules| modules.iter().any(|module| module.as_str() == Some(source)))
+            .is_some_and(|modules| {
+                let base_name = module_name(source);
+                modules.iter().any(|module| module.as_str() == Some(base_name))
+            })
 }
 
 fn is_type_only_import(import: &oxc_ast::ast::ImportDeclaration<'_>) -> bool {
@@ -383,6 +389,20 @@ declare_oxc_lint!(
     /// // { "devDependencies": ["**/*.test.js"] }
     /// import eslint from 'eslint';
     /// ```
+    ///
+    /// ### Options
+    ///
+    /// `packageDir` selects one or more directories containing the `package.json` files to use;
+    /// without it, the nearest `package.json` is selected. The dependency-category options can
+    /// be booleans or globs that allow dev, optional, peer, or bundled dependencies for matching
+    /// files. `includeInternal` checks resolved internal modules, `includeTypes` checks type-only
+    /// imports and exports, and `whitelist` exempts named packages.
+    ///
+    /// Oxc uses its native module graph and resolver. Resolver-specific settings from
+    /// `eslint-plugin-import` are not interpreted, but `import-x/core-modules` and
+    /// `import-x/internal-regex` settings are supported.
+    /// Static no-substitution template-literal `import()` calls and TypeScript import-equals
+    /// declarations are also checked.
     // <https://github.com/import-js/eslint-plugin-import/blob/v2.32.0/docs/rules/no-extraneous-dependencies.md>
     NoExtraneousDependencies,
     import,
@@ -411,6 +431,14 @@ impl Rule for NoExtraneousDependencies {
 
         let resolver = Resolver::new(ResolveOptions::default());
         let whitelist = self.0.whitelist.iter().collect::<FxHashSet<_>>();
+        let internal_regex = ctx
+            .settings()
+            .json
+            .as_ref()
+            .and_then(|settings| settings.get("import-x/internal-regex"))
+            .and_then(Value::as_str)
+            .and_then(|pattern| Regex::new(pattern).ok());
+        let mut package_name_cache = FxHashMap::default();
         for node in ctx.nodes().iter() {
             let (source, span, is_type) = match node.kind() {
                 AstKind::ImportDeclaration(import) => {
@@ -460,13 +488,15 @@ impl Rule for NoExtraneousDependencies {
 
             let resolved = resolve_module(ctx, &resolver, source);
             if resolved.is_none()
-                || (!self.0.include_internal && is_internal(source, resolved.as_deref()))
+                || (!self.0.include_internal
+                    && is_internal(source, resolved.as_deref(), internal_regex.as_ref()))
             {
                 continue;
             }
 
             let source_name = module_name(source);
-            let real_name = resolved.as_deref().and_then(package_name);
+            let real_name =
+                resolved.as_deref().and_then(|path| package_name(path, &mut package_name_cache));
             let source_status = declaration_status(&data.dependencies, source_name);
             let real_status = real_name
                 .as_deref()
@@ -533,6 +563,10 @@ fn test() {
 
     let package_dir = std::env::current_dir().unwrap().join("fixtures/import");
     let monorepo = package_dir.join("monorepo");
+    let nested_package = monorepo.join("packages/nested-package");
+    let bundled_as_array = package_dir.join("bundled-dependencies/as-array-bundle-deps");
+    let bundled_as_object = package_dir.join("bundled-dependencies/as-object");
+    let bundled_race_condition = package_dir.join("bundled-dependencies/race-condition");
     let pass = vec![
         (r#"import "lodash.cond""#, None),
         (r#"import foo, { bar } from "lodash.cond""#, None),
@@ -546,8 +580,11 @@ fn test() {
         (r#"import "fs""#, None),
         (r#"import "./foo""#, None),
         (r#"import "@generated/foo""#, None),
+        (r#"import "@generated/foo""#, Some(json!([{ "packageDir": bundled_as_array }]))),
+        (r#"import "@generated/foo""#, Some(json!([{ "packageDir": bundled_as_object }]))),
         (r#"import "eslint""#, Some(json!([{ "devDependencies": true }]))),
-        (r#"import "jest""#, Some(json!([{ "devDependencies": ["*.ts"] }]))),
+        (r#"import "jest""#, Some(json!([{ "devDependencies": [package_dir.join("*.ts")] }]))),
+        (r#"import "jest""#, Some(json!([{ "devDependencies": ["fixtures/import/*.ts"] }]))),
         (
             r#"import "eslint""#,
             Some(json!([{ "devDependencies": false, "peerDependencies": true }])),
@@ -556,10 +593,18 @@ fn test() {
         (r#"export type { T } from "not-a-dependency""#, None),
         (r#"import { type T } from "not-a-dependency""#, None),
         (r#"import "lodash.cond""#, Some(json!([{ "packageDir": [] }]))),
-        (r#"import "left-pad""#, Some(json!([{ "packageDir": ["empty", "monorepo"] }]))),
+        (
+            r#"import "left-pad""#,
+            Some(json!([{ "packageDir": [package_dir.join("empty"), monorepo] }])),
+        ),
+        (r#"import "left-pad""#, Some(json!([{ "packageDir": "fixtures/import/monorepo" }]))),
         (r#"import "eslint""#, Some(json!([{ "peerDependencies": true }]))),
         (r#"import "lodash.isarray""#, Some(json!([{ "optionalDependencies": true }]))),
         (r#"import "@generated/foo""#, Some(json!([{ "bundledDependencies": true }]))),
+        (r#"import "react""#, Some(json!([{ "packageDir": nested_package }]))),
+        (r#"import "left-pad""#, Some(json!([{ "packageDir": monorepo }]))),
+        (r#"import "left-pad""#, Some(json!([{ "packageDir": [nested_package, monorepo] }]))),
+        (r#"import "right-pad""#, Some(json!([{ "packageDir": [monorepo, nested_package] }]))),
         (
             r#"import "not-a-dependency""#,
             Some(json!([{ "packageDir": monorepo, "whitelist": ["not-a-dependency"] }])),
@@ -581,6 +626,7 @@ fn test() {
         (r#"import "jest""#, Some(json!([{ "devDependencies": ["*.js"] }]))),
         (r#"import "lodash.isarray""#, Some(json!([{ "optionalDependencies": false }]))),
         (r#"import "@generated/foo""#, Some(json!([{ "bundledDependencies": false }]))),
+        (r#"import "@generated/bar""#, Some(json!([{ "packageDir": bundled_race_condition }]))),
         (
             r#"var eslint = require("lodash.isarray")"#,
             Some(json!([{ "optionalDependencies": false }])),
@@ -594,14 +640,62 @@ fn test() {
             r#"import "not-a-dependency""#,
             Some(json!([{ "packageDir": package_dir.join("does-not-exist") }])),
         ),
+        (
+            r#"import "react""#,
+            Some(
+                json!([{ "packageDir": [package_dir.join("does-not-exist"), package_dir.join("empty-folder")] }]),
+            ),
+        ),
         (r#"import "react""#, Some(json!([{ "packageDir": package_dir.join("empty") }]))),
+        (r#"import "left-pad""#, Some(json!([{ "packageDir": nested_package }]))),
+        (r#"import "react""#, Some(json!([{ "packageDir": monorepo }]))),
         (r#"import "foo""#, Some(json!([{ "packageDir": package_dir.join("with-syntax-error") }]))),
     ];
 
     Tester::new(NoExtraneousDependencies::NAME, NoExtraneousDependencies::PLUGIN, pass, fail)
         .with_import_plugin(true)
         .change_rule_path("index.ts")
-        .test();
+        .test_and_snapshot();
+
+    Tester::new(
+        NoExtraneousDependencies::NAME,
+        NoExtraneousDependencies::PLUGIN,
+        vec![(
+            r#"import "not-a-dependency""#,
+            None,
+            Some(json!({ "settings": { "import-x/internal-regex": "^not-a-dependency$" } })),
+        )],
+        vec![],
+    )
+    .with_import_plugin(true)
+    .change_rule_path("index.ts")
+    .test();
+
+    Tester::new(
+        NoExtraneousDependencies::NAME,
+        NoExtraneousDependencies::PLUGIN,
+        vec![
+            (
+                r#"import "electron""#,
+                None,
+                Some(json!({ "settings": { "import-x/core-modules": ["electron"] } })),
+            ),
+            (
+                r#"import "@generated/bar/module""#,
+                None,
+                Some(json!({ "settings": { "import-x/core-modules": ["@generated/bar"] } })),
+            ),
+            (
+                r#"import "@generated/bar/and/sub/path""#,
+                None,
+                Some(json!({ "settings": { "import-x/core-modules": ["@generated/bar"] } })),
+            ),
+        ],
+        vec![],
+    )
+    .with_import_plugin(true)
+    .change_rule_path("index.ts")
+    .test();
 
     Tester::new(
         NoExtraneousDependencies::NAME,

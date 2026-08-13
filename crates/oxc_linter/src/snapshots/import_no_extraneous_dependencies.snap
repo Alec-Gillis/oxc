@@ -1,0 +1,169 @@
+---
+source: crates/oxc_linter/src/tester.rs
+assertion_line: 490
+---
+
+  ⚠ import(no-extraneous-dependencies): 'not-a-dependency' should be listed in the project's dependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import "not-a-dependency"
+   ·        ──────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): '@org/not-a-dependency' should be listed in the project's dependencies.
+   ╭─[index.ts:1:26]
+ 1 │ var donthaveit = require("@org/not-a-dependency")
+   ·                          ───────────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): '@org/not-a-dependency' should be listed in the project's dependencies.
+   ╭─[index.ts:1:26]
+ 1 │ var donthaveit = require("@org/not-a-dependency/foo")
+   ·                          ───────────────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'not-a-dependency' should be listed in the project's dependencies.
+   ╭─[index.ts:1:9]
+ 1 │ require("not-a-dependency")
+   ·         ──────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'not-a-dependency' should be listed in the project's dependencies.
+   ╭─[index.ts:1:25]
+ 1 │ export { default } from "not-a-dependency"
+   ·                         ──────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'not-a-dependency' should be listed in the project's dependencies.
+   ╭─[index.ts:1:15]
+ 1 │ export * from "not-a-dependency"
+   ·               ──────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'not-a-dependency' should be listed in the project's dependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import("not-a-dependency")
+   ·        ──────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'not-a-dependency' should be listed in the project's dependencies.
+   ╭─[index.ts:1:22]
+ 1 │ import foo = require("not-a-dependency")
+   ·                      ──────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'eslint' should be listed in the project's dependencies, not devDependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import "eslint"
+   ·        ────────
+   ╰────
+  help: Move the package from devDependencies to dependencies.
+
+  ⚠ import(no-extraneous-dependencies): 'jest' should be listed in the project's dependencies, not devDependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import "jest"
+   ·        ──────
+   ╰────
+  help: Move the package from devDependencies to dependencies.
+
+  ⚠ import(no-extraneous-dependencies): 'lodash.isarray' should be listed in the project's dependencies, not optionalDependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import "lodash.isarray"
+   ·        ────────────────
+   ╰────
+  help: Move the package from optionalDependencies to dependencies.
+
+  ⚠ import(no-extraneous-dependencies): '@generated/foo' should be listed in the project's dependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import "@generated/foo"
+   ·        ────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): '@generated/bar' should be listed in the project's dependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import "@generated/bar"
+   ·        ────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'lodash.isarray' should be listed in the project's dependencies, not optionalDependencies.
+   ╭─[index.ts:1:22]
+ 1 │ var eslint = require("lodash.isarray")
+   ·                      ────────────────
+   ╰────
+  help: Move the package from optionalDependencies to dependencies.
+
+  ⚠ import(no-extraneous-dependencies): 'glob' should be listed in the project's dependencies, not devDependencies.
+   ╭─[index.ts:1:20]
+ 1 │ var glob = require("glob")
+   ·                    ──────
+   ╰────
+  help: Move the package from devDependencies to dependencies.
+
+  ⚠ import(no-extraneous-dependencies): '.' should be listed in the project's dependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import "./foo"
+   ·        ───────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'not-a-dependency' should be listed in the project's dependencies.
+   ╭─[index.ts:1:20]
+ 1 │ import type T from "not-a-dependency"
+   ·                    ──────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'not-a-dependency' should be listed in the project's dependencies.
+   ╭─[index.ts:1:24]
+ 1 │ export type { T } from "not-a-dependency"
+   ·                        ──────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'not-a-dependency' should be listed in the project's dependencies.
+   ╭─[index.ts:1:24]
+ 1 │ import { type T } from "not-a-dependency"
+   ·                        ──────────────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): The package.json file could not be found.
+
+  ⚠ import(no-extraneous-dependencies): 'react' should be listed in the project's dependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import "react"
+   ·        ───────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'react' should be listed in the project's dependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import "react"
+   ·        ───────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'left-pad' should be listed in the project's dependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import "left-pad"
+   ·        ──────────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): 'react' should be listed in the project's dependencies.
+   ╭─[index.ts:1:8]
+ 1 │ import "react"
+   ·        ───────
+   ╰────
+  help: Add the package to dependencies with `npm install`.
+
+  ⚠ import(no-extraneous-dependencies): The package.json file could not be parsed: key must be a string at line 1 column 2
