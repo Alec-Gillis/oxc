@@ -104,6 +104,8 @@ export type ImportExtensionsObject =
 export type PathGroupAction = "enforce" | "ignore";
 export type AbsoluteFirst = "absolute-first" | "disable-absolute-first";
 export type MaxDependenciesConfigJson = number | MaxDependenciesConfig;
+export type BoolOrGlobs = boolean | string[];
+export type PackageDir = string | string[];
 export type Target = "single" | "any";
 export type TestCaseName = "it" | "test";
 export type JestFnType = "hook" | "describe" | "test" | "expect" | "jest" | "unknown";
@@ -955,6 +957,7 @@ export interface DummyRuleMap {
   "import/no-duplicates"?: RuleNoConfig | [AllowWarnDeny, NoDuplicates];
   "import/no-dynamic-require"?: RuleNoConfig | [AllowWarnDeny, NoDynamicRequire];
   "import/no-empty-named-blocks"?: RuleNoConfig;
+  "import/no-extraneous-dependencies"?: RuleNoConfig | [AllowWarnDeny, NoExtraneousDependenciesConfig];
   "import/no-mutable-exports"?: RuleNoConfig;
   "import/no-named-as-default"?: RuleNoConfig;
   "import/no-named-as-default-member"?: RuleNoConfig;
@@ -2251,6 +2254,16 @@ export interface NoDynamicRequire {
    * When `true`, also check `import()` expressions for dynamic module specifiers.
    */
   esmodule?: boolean;
+}
+export interface NoExtraneousDependenciesConfig {
+  bundledDependencies?: BoolOrGlobs;
+  devDependencies?: BoolOrGlobs;
+  includeInternal?: boolean;
+  includeTypes?: boolean;
+  optionalDependencies?: BoolOrGlobs;
+  packageDir?: PackageDir;
+  peerDependencies?: BoolOrGlobs;
+  whitelist?: string[];
 }
 export interface NoNamespaceConfig {
   /**

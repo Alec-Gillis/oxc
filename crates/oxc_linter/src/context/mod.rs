@@ -147,6 +147,12 @@ impl<'a> LintContext<'a> {
         &self.parent.file_path
     }
 
+    /// Current working directory used to resolve linter configuration paths.
+    #[inline]
+    pub fn cwd(&self) -> &Path {
+        &self.parent.cwd
+    }
+
     /// Extension of the file currently being linted, without the leading dot.
     #[inline]
     pub fn file_extension(&self) -> Option<&OsStr> {

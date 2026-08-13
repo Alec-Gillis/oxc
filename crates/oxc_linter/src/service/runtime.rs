@@ -672,12 +672,13 @@ impl Runtime {
                         }
 
                         let (mut messages, disable_directives) =
-                            me.linter.run_with_disable_directives::<TIMINGS>(
+                            me.linter.run_with_disable_directives_in_cwd::<TIMINGS>(
                                 path,
                                 context_sub_hosts,
                                 allocator_guard,
                                 me.js_allocator_pool(),
                                 rule_timing_store,
+                                &me.cwd,
                             );
 
                         // Store the disable directives for this file
@@ -813,12 +814,13 @@ impl Runtime {
                             let path = Path::new(&module_to_lint.path);
 
                             let (section_messages, disable_directives) =
-                                me.linter.run_with_disable_directives::<false>(
+                                me.linter.run_with_disable_directives_in_cwd::<false>(
                                     path,
                                     context_sub_hosts,
                                     allocator_guard,
                                     me.js_allocator_pool(),
                                     None,
+                                    &me.cwd,
                                 );
 
                             if let Some(disable_directives) = disable_directives {

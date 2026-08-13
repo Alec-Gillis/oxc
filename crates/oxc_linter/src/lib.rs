@@ -354,11 +354,37 @@ impl Linter {
         js_allocator_pool: Option<&AllocatorPool>,
         rule_timing_store: Option<&RuleTimingStore>,
     ) -> (Vec<Message>, Option<DisableDirectives>) {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        self.run_with_disable_directives_in_cwd::<TIMINGS>(
+            path,
+            context_sub_hosts,
+            allocator,
+            js_allocator_pool,
+            rule_timing_store,
+            &cwd,
+        )
+    }
+
+    pub(crate) fn run_with_disable_directives_in_cwd<'a, const TIMINGS: bool>(
+        &self,
+        path: &Path,
+        context_sub_hosts: Vec<ContextSubHost<'a>>,
+        allocator: &'a Allocator,
+        js_allocator_pool: Option<&AllocatorPool>,
+        rule_timing_store: Option<&RuleTimingStore>,
+        cwd: &Path,
+    ) -> (Vec<Message>, Option<DisableDirectives>) {
         let ResolvedLinterState { rules, config, external_rules } = self.config.resolve(path);
         let mut timing_recorder = TIMINGS.then(|| RuleTimingRecorder::with_capacity(rules.len()));
 
-        let mut ctx_host =
-            Rc::new(ContextHost::new(path, context_sub_hosts, allocator, self.options, config));
+        let mut ctx_host = Rc::new(ContextHost::new_with_cwd(
+            path,
+            cwd,
+            context_sub_hosts,
+            allocator,
+            self.options,
+            config,
+        ));
 
         #[cfg(debug_assertions)]
         let mut current_diagnostic_index = 0;
