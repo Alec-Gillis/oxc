@@ -176,6 +176,8 @@ pub struct ContextHost<'a> {
     pub(crate) fix: FixKind,
     /// Path to the file being linted.
     pub(super) file_path: Box<Path>,
+    /// Current working directory used to resolve linter configuration paths.
+    pub(super) cwd: Box<Path>,
     /// Extension of the file being linted.
     file_extension: Option<Box<OsStr>>,
     /// Global linter configuration, such as globals to include and the target
@@ -203,6 +205,18 @@ impl<'a> ContextHost<'a> {
         options: LintOptions,
         config: Arc<LintConfig>,
     ) -> Self {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        Self::new_with_cwd(file_path, &cwd, sub_hosts, allocator, options, config)
+    }
+
+    pub(crate) fn new_with_cwd<P: AsRef<Path>>(
+        file_path: P,
+        cwd: &Path,
+        sub_hosts: Vec<ContextSubHost<'a>>,
+        allocator: &'a Allocator,
+        options: LintOptions,
+        config: Arc<LintConfig>,
+    ) -> Self {
         const DIAGNOSTICS_INITIAL_CAPACITY: usize = 16;
 
         assert!(
@@ -220,6 +234,7 @@ impl<'a> ContextHost<'a> {
             diagnostics: RefCell::new(Vec::with_capacity(DIAGNOSTICS_INITIAL_CAPACITY)),
             fix: options.fix,
             file_path,
+            cwd: cwd.to_path_buf().into_boxed_path(),
             file_extension,
             config,
             frameworks: options.framework_hints,

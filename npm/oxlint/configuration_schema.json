@@ -1129,6 +1129,19 @@
         }
       ]
     },
+    "BoolOrGlobs": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "ButtonHasType": {
       "type": "object",
       "properties": {
@@ -14139,45 +14152,6 @@
       },
       "additionalProperties": false
     },
-    "NoExtraneousDependenciesConfig": {
-      "type": "object",
-      "properties": {
-        "bundledDependencies": {
-          "anyOf": [
-            { "type": "boolean" },
-            { "type": "array", "items": { "type": "string" } }
-          ]
-        },
-        "devDependencies": {
-          "anyOf": [
-            { "type": "boolean" },
-            { "type": "array", "items": { "type": "string" } }
-          ]
-        },
-        "includeInternal": { "type": "boolean", "default": false },
-        "includeTypes": { "type": "boolean", "default": false },
-        "optionalDependencies": {
-          "anyOf": [
-            { "type": "boolean" },
-            { "type": "array", "items": { "type": "string" } }
-          ]
-        },
-        "packageDir": {
-          "anyOf": [
-            { "type": "string" },
-            { "type": "array", "items": { "type": "string" } }
-          ]
-        },
-        "peerDependencies": {
-          "anyOf": [
-            { "type": "boolean" },
-            { "type": "array", "items": { "type": "string" } }
-          ]
-        },
-        "whitelist": { "type": "array", "items": { "type": "string" } }
-      },
-      "additionalProperties": false
-    },
     "NoElseReturn": {
       "type": "object",
       "properties": {
@@ -14354,6 +14328,42 @@
           "default": false,
           "type": "boolean",
           "markdownDescription": "Allow classes with decorators."
+        }
+      },
+      "additionalProperties": false
+    },
+    "NoExtraneousDependenciesConfig": {
+      "type": "object",
+      "properties": {
+        "bundledDependencies": {
+          "$ref": "#/definitions/BoolOrGlobs"
+        },
+        "devDependencies": {
+          "$ref": "#/definitions/BoolOrGlobs"
+        },
+        "includeInternal": {
+          "default": false,
+          "type": "boolean"
+        },
+        "includeTypes": {
+          "default": false,
+          "type": "boolean"
+        },
+        "optionalDependencies": {
+          "$ref": "#/definitions/BoolOrGlobs"
+        },
+        "packageDir": {
+          "$ref": "#/definitions/PackageDir"
+        },
+        "peerDependencies": {
+          "$ref": "#/definitions/BoolOrGlobs"
+        },
+        "whitelist": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false
@@ -17256,6 +17266,19 @@
         }
       },
       "markdownDescription": "Configure the behavior of linter plugins.\n\nHere's an example if you're using Next.js in a monorepo:\n\n```json\n{\n\"settings\": {\n\"next\": {\n\"rootDir\": \"apps/dashboard/\"\n},\n\"react\": {\n\"linkComponents\": [\n{ \"name\": \"Link\", \"linkAttribute\": \"to\" }\n]\n},\n\"jsx-a11y\": {\n\"components\": {\n\"Link\": \"a\",\n\"Button\": \"button\"\n}\n}\n}\n}\n```"
+    },
+    "PackageDir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
     },
     "PackageFrom": {
       "type": "string",

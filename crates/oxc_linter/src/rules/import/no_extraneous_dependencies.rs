@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use cow_utils::CowUtils;
 use fast_glob::glob_match;
 use nodejs_built_in_modules::is_nodejs_builtin_module;
 use oxc_ast::{
@@ -47,23 +48,23 @@ enum BoolOrGlobs {
 }
 
 impl BoolOrGlobs {
-    fn allows(&self, file_path: &Path) -> bool {
+    fn allows(&self, file_path: &Path, cwd: &Path) -> bool {
         match self {
             Self::Bool(value) => *value,
             Self::Globs(patterns) => {
-                let file = file_path.to_string_lossy().replace('\\', "/");
-                let basename = file_path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or_default();
-                let relative = std::env::current_dir()
-                    .ok()
-                    .and_then(|cwd| file_path.strip_prefix(cwd).ok())
-                    .map(|path| path.to_string_lossy().replace('\\', "/"));
+                let file = file_path.to_string_lossy().cow_replace('\\', "/").into_owned();
+                let basename =
+                    file_path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+                let relative = file_path
+                    .strip_prefix(cwd)
+                    .map(|path| path.to_string_lossy().cow_replace('\\', "/").into_owned());
                 patterns.iter().any(|pattern| {
-                    glob_match(pattern, &file)
+                    let absolute =
+                        cwd.join(pattern).to_string_lossy().cow_replace('\\', "/").into_owned();
+                    glob_match(pattern, file.as_bytes())
                         || glob_match(pattern, basename)
-                        || relative.as_deref().is_some_and(|path| glob_match(pattern, path))
+                        || glob_match(pattern, relative.as_deref().unwrap_or_default())
+                        || glob_match(absolute.as_bytes(), file.as_bytes())
                 })
             }
         }
@@ -94,7 +95,7 @@ struct PackageData {
     package_root: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct NoExtraneousDependenciesConfig {
     package_dir: Option<PackageDir>,
@@ -107,29 +108,8 @@ pub struct NoExtraneousDependenciesConfig {
     whitelist: Vec<String>,
 }
 
-impl Default for NoExtraneousDependenciesConfig {
-    fn default() -> Self {
-        Self {
-            package_dir: None,
-            dev_dependencies: None,
-            optional_dependencies: None,
-            peer_dependencies: None,
-            bundled_dependencies: None,
-            include_internal: false,
-            include_types: false,
-            whitelist: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct NoExtraneousDependencies(Box<NoExtraneousDependenciesConfig>);
-
-impl Default for NoExtraneousDependencies {
-    fn default() -> Self {
-        Self(Box::default())
-    }
-}
 
 impl std::ops::Deref for NoExtraneousDependencies {
     type Target = NoExtraneousDependenciesConfig;
@@ -148,11 +128,9 @@ fn dependency_set(value: Option<&Value>) -> FxHashSet<String> {
 
 fn bundled_dependency_set(value: Option<&Value>) -> FxHashSet<String> {
     match value {
-        Some(Value::Array(values)) => values
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect(),
+        Some(Value::Array(values)) => {
+            values.iter().filter_map(Value::as_str).map(str::to_owned).collect()
+        }
         Some(Value::Object(object)) => object.keys().cloned().collect(),
         _ => FxHashSet::default(),
     }
@@ -161,9 +139,8 @@ fn bundled_dependency_set(value: Option<&Value>) -> FxHashSet<String> {
 fn read_package(path: &Path) -> Result<(DependencyFields, Option<String>), String> {
     let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
     let package: Value = serde_json::from_str(&content).map_err(|error| error.to_string())?;
-    let object = package
-        .as_object()
-        .ok_or_else(|| "package.json must contain an object".to_string())?;
+    let object =
+        package.as_object().ok_or_else(|| "package.json must contain an object".to_string())?;
     Ok((
         DependencyFields {
             dependencies: dependency_set(object.get("dependencies")),
@@ -171,9 +148,7 @@ fn read_package(path: &Path) -> Result<(DependencyFields, Option<String>), Strin
             optional_dependencies: dependency_set(object.get("optionalDependencies")),
             peer_dependencies: dependency_set(object.get("peerDependencies")),
             bundled_dependencies: bundled_dependency_set(
-                object
-                    .get("bundleDependencies")
-                    .or_else(|| object.get("bundledDependencies")),
+                object.get("bundleDependencies").or_else(|| object.get("bundledDependencies")),
             ),
         },
         object.get("name").and_then(Value::as_str).map(str::to_owned),
@@ -209,11 +184,7 @@ fn package_data(
         Some(paths) => paths
             .into_iter()
             .map(|path| {
-                let path = if path.is_absolute() {
-                    path
-                } else {
-                    std::env::current_dir().unwrap_or_default().join(path)
-                };
+                let path = if path.is_absolute() { path } else { ctx.cwd().join(path) };
                 path.join("package.json")
             })
             .collect::<Vec<_>>(),
@@ -224,10 +195,8 @@ fn package_data(
         return Ok(PackageData::default());
     }
 
-    let configured_single_path = config
-        .package_dir
-        .as_ref()
-        .is_some_and(|dir| dir.paths().len() == 1);
+    let configured_single_path =
+        config.package_dir.as_ref().is_some_and(|dir| dir.paths().len() == 1);
     let mut data = PackageData::default();
     for path in package_paths {
         let result = read_package(&path);
@@ -239,9 +208,18 @@ fn package_data(
                 merge_dependencies(&mut data.dependencies, dependencies);
             }
             Err(_error) if !path.exists() && !configured_single_path => {}
-            Err(error) if !path.exists() => return Err(PackageError::NotFound),
+            Err(_error) if !path.exists() => return Err(PackageError::NotFound),
             Err(error) => return Err(PackageError::Unparsable(error)),
         }
+    }
+    let dependencies = &data.dependencies;
+    if dependencies.dependencies.is_empty()
+        && dependencies.dev_dependencies.is_empty()
+        && dependencies.optional_dependencies.is_empty()
+        && dependencies.peer_dependencies.is_empty()
+        && dependencies.bundled_dependencies.is_empty()
+    {
+        return Ok(PackageData::default());
     }
     Ok(data)
 }
@@ -293,16 +271,23 @@ fn is_declared(
     status: DeclarationStatus,
     config: &NoExtraneousDependenciesConfig,
     file_path: &Path,
+    cwd: &Path,
 ) -> bool {
     status.dependencies
         || (status.dev_dependencies
-            && config.dev_dependencies.as_ref().is_none_or(|option| option.allows(file_path)))
+            && config.dev_dependencies.as_ref().is_none_or(|option| option.allows(file_path, cwd)))
         || (status.optional_dependencies
-            && config.optional_dependencies.as_ref().is_none_or(|option| option.allows(file_path)))
+            && config
+                .optional_dependencies
+                .as_ref()
+                .is_none_or(|option| option.allows(file_path, cwd)))
         || (status.peer_dependencies
-            && config.peer_dependencies.as_ref().is_none_or(|option| option.allows(file_path)))
+            && config.peer_dependencies.as_ref().is_none_or(|option| option.allows(file_path, cwd)))
         || (status.bundled_dependencies
-            && config.bundled_dependencies.as_ref().is_none_or(|option| option.allows(file_path)))
+            && config
+                .bundled_dependencies
+                .as_ref()
+                .is_none_or(|option| option.allows(file_path, cwd)))
 }
 
 fn diagnostic(span: Span, message: String, help: &'static str) -> OxcDiagnostic {
@@ -333,7 +318,9 @@ fn resolve_module(ctx: &LintContext, resolver: &Resolver, source: &str) -> Optio
 fn is_internal(source: &str, resolved: Option<&Path>) -> bool {
     source.starts_with('.')
         || source.starts_with('/')
-        || resolved.is_some_and(|path| !path.components().any(|component| component.as_os_str() == "node_modules"))
+        || resolved.is_some_and(|path| {
+            !path.components().any(|component| component.as_os_str() == "node_modules")
+        })
 }
 
 fn is_core_module(ctx: &LintContext, source: &str) -> bool {
@@ -361,10 +348,7 @@ fn is_type_only_import(import: &oxc_ast::ast::ImportDeclaration<'_>) -> bool {
 fn is_type_only_export(export: &oxc_ast::ast::ExportFromDeclaration<'_>) -> bool {
     export.export_kind.is_type()
         || (!export.specifiers.is_empty()
-            && export
-                .specifiers
-                .iter()
-                .all(|specifier| specifier.export_kind.is_type()))
+            && export.specifiers.iter().all(|specifier| specifier.export_kind.is_type()))
 }
 
 declare_oxc_lint!(
@@ -412,16 +396,12 @@ impl Rule for NoExtraneousDependencies {
         let whitelist = self.0.whitelist.iter().collect::<FxHashSet<_>>();
         for node in ctx.nodes().iter() {
             let (source, span, is_type) = match node.kind() {
-                AstKind::ImportDeclaration(import) => (
-                    import.source.value.as_str(),
-                    import.source.span,
-                    is_type_only_import(import),
-                ),
-                AstKind::ExportFromDeclaration(export) => (
-                    export.source.value.as_str(),
-                    export.source.span,
-                    is_type_only_export(export),
-                ),
+                AstKind::ImportDeclaration(import) => {
+                    (import.source.value.as_str(), import.source.span, is_type_only_import(import))
+                }
+                AstKind::ExportFromDeclaration(export) => {
+                    (export.source.value.as_str(), export.source.span, is_type_only_export(export))
+                }
                 AstKind::ExportAllDeclaration(export) => {
                     (export.source.value.as_str(), export.source.span, export.export_kind.is_type())
                 }
@@ -444,9 +424,11 @@ impl Rule for NoExtraneousDependencies {
                     (literal.value.as_str(), literal.span, false)
                 }
                 AstKind::TSImportEqualsDeclaration(import) => match &import.module_reference {
-                    TSModuleReference::ExternalModuleReference(external) => {
-                        (external.expression.value.as_str(), external.expression.span, import.import_kind.is_type())
-                    }
+                    TSModuleReference::ExternalModuleReference(external) => (
+                        external.expression.value.as_str(),
+                        external.expression.span,
+                        import.import_kind.is_type(),
+                    ),
                     _ => continue,
                 },
                 _ => continue,
@@ -460,7 +442,9 @@ impl Rule for NoExtraneousDependencies {
             }
 
             let resolved = resolve_module(ctx, &resolver, source);
-            if resolved.is_none() || (!self.0.include_internal && is_internal(source, resolved.as_deref())) {
+            if resolved.is_none()
+                || (!self.0.include_internal && is_internal(source, resolved.as_deref()))
+            {
                 continue;
             }
 
@@ -470,29 +454,45 @@ impl Rule for NoExtraneousDependencies {
             let real_status = real_name
                 .as_deref()
                 .filter(|name| *name != source_name)
-                .map_or(DeclarationStatus::default(), |name| declaration_status(&data.dependencies, name));
+                .map_or(DeclarationStatus::default(), |name| {
+                    declaration_status(&data.dependencies, name)
+                });
             let status = DeclarationStatus {
                 dependencies: source_status.dependencies || real_status.dependencies,
                 dev_dependencies: source_status.dev_dependencies || real_status.dev_dependencies,
-                optional_dependencies: source_status.optional_dependencies || real_status.optional_dependencies,
+                optional_dependencies: source_status.optional_dependencies
+                    || real_status.optional_dependencies,
                 peer_dependencies: source_status.peer_dependencies || real_status.peer_dependencies,
-                bundled_dependencies: source_status.bundled_dependencies || real_status.bundled_dependencies,
+                bundled_dependencies: source_status.bundled_dependencies
+                    || real_status.bundled_dependencies,
             };
 
-            if is_declared(status, &self.0, ctx.file_path()) {
+            if is_declared(status, &self.0, ctx.file_path(), ctx.cwd()) {
                 continue;
             }
             let package_name = real_name.as_deref().unwrap_or(source_name);
             if whitelist.iter().any(|name| name.as_str() == package_name) {
                 continue;
             }
-            if status.dev_dependencies && self.0.dev_dependencies.as_ref().is_some_and(|option| !option.allows(ctx.file_path())) {
+            if status.dev_dependencies
+                && self
+                    .0
+                    .dev_dependencies
+                    .as_ref()
+                    .is_some_and(|option| !option.allows(ctx.file_path(), ctx.cwd()))
+            {
                 ctx.diagnostic(diagnostic(
                     span,
                     format!("'{package_name}' should be listed in the project's dependencies, not devDependencies."),
                     "Move the package from devDependencies to dependencies.",
                 ));
-            } else if status.optional_dependencies && self.0.optional_dependencies.as_ref().is_some_and(|option| !option.allows(ctx.file_path())) {
+            } else if status.optional_dependencies
+                && self
+                    .0
+                    .optional_dependencies
+                    .as_ref()
+                    .is_some_and(|option| !option.allows(ctx.file_path(), ctx.cwd()))
+            {
                 ctx.diagnostic(diagnostic(
                     span,
                     format!("'{package_name}' should be listed in the project's dependencies, not optionalDependencies."),
@@ -518,30 +518,59 @@ fn test() {
     let monorepo = package_dir.join("monorepo");
     let pass = vec![
         (r#"import "lodash.cond""#, None),
+        (r#"require("lodash.cond")"#, None),
+        (r#"export { default } from "lodash.cond""#, None),
         (r#"import "fs""#, None),
         (r#"import "./foo""#, None),
-        (r#"import "jest""#, Some(json!([{ "devDependencies": true }]))),
-        (r#"import "jest""#, Some(json!([{ "devDependencies": ["*.js"] }])),
-        (r#"import type { T } from "not-a-dependency""#, None),
-        (r#"import "left-pad""#, Some(json!([{ "packageDir": ["fixtures/import/empty", "fixtures/import/monorepo"] }]))),
+        (r#"import "@generated/foo""#, None),
+        (r#"import "eslint""#, Some(json!([{ "devDependencies": true }]))),
+        (r#"import "jest""#, Some(json!([{ "devDependencies": ["*.ts"] }]))),
+        (
+            r#"import "eslint""#,
+            Some(json!([{ "devDependencies": false, "peerDependencies": true }])),
+        ),
+        (r#"import type T from "not-a-dependency""#, None),
+        (
+            r#"import "not-a-dependency""#,
+            Some(json!([{ "packageDir": package_dir.join("empty") }])),
+        ),
+        (r#"import "left-pad""#, Some(json!([{ "packageDir": ["empty", "monorepo"] }]))),
     ];
     let fail = vec![
         (r#"import "not-a-dependency""#, None),
         (r#"require("not-a-dependency")"#, None),
-        (r#"import "eslint""#, Some(json!([{ "devDependencies": false, "peerDependencies": false }]))),
+        (r#"export { default } from "not-a-dependency""#, None),
+        (r#"export * from "not-a-dependency""#, None),
+        (
+            r#"import "eslint""#,
+            Some(json!([{ "devDependencies": false, "peerDependencies": false }])),
+        ),
+        (r#"import "jest""#, Some(json!([{ "devDependencies": ["*.js"] }]))),
         (r#"import "lodash.isarray""#, Some(json!([{ "optionalDependencies": false }]))),
-        (r#"import type { T } from "not-a-dependency""#, Some(json!([{ "includeTypes": true }]))),
+        (r#"import "@generated/foo""#, Some(json!([{ "bundledDependencies": false }]))),
+        (r#"import "./foo""#, Some(json!([{ "includeInternal": true }]))),
+        (r#"import type T from "not-a-dependency""#, Some(json!([{ "includeTypes": true }]))),
+        (
+            r#"import "not-a-dependency""#,
+            Some(json!([{ "packageDir": package_dir.join("does-not-exist") }])),
+        ),
+        (r#"import "foo""#, Some(json!([{ "packageDir": package_dir.join("with-syntax-error") }]))),
     ];
 
     Tester::new(NoExtraneousDependencies::NAME, NoExtraneousDependencies::PLUGIN, pass, fail)
         .with_import_plugin(true)
-        .change_rule_path("index.js")
+        .change_rule_path("index.ts")
         .test();
 
-    Tester::new(NoExtraneousDependencies::NAME, NoExtraneousDependencies::PLUGIN, vec![("import \"left-pad\"", Some(json!([{ "packageDir": monorepo }])) )], vec![])
-        .with_import_plugin(true)
-        .change_rule_path("index.js")
-        .test();
+    Tester::new(
+        NoExtraneousDependencies::NAME,
+        NoExtraneousDependencies::PLUGIN,
+        vec![("import \"left-pad\"", Some(json!([{ "packageDir": monorepo }])))],
+        vec![],
+    )
+    .with_import_plugin(true)
+    .change_rule_path("index.ts")
+    .test();
 
     let _ = package_dir;
 }

@@ -6550,7 +6550,9 @@ impl RuleEnum {
             Self::ImportNoDuplicates(_) => ImportNoDuplicates::documentation(),
             Self::ImportNoDynamicRequire(_) => ImportNoDynamicRequire::documentation(),
             Self::ImportNoEmptyNamedBlocks(_) => ImportNoEmptyNamedBlocks::documentation(),
-            Self::ImportNoExtraneousDependencies(_) => ImportNoExtraneousDependencies::documentation(),
+            Self::ImportNoExtraneousDependencies(_) => {
+                ImportNoExtraneousDependencies::documentation()
+            }
             Self::ImportNoMutableExports(_) => ImportNoMutableExports::documentation(),
             Self::ImportNoNamedAsDefault(_) => ImportNoNamedAsDefault::documentation(),
             Self::ImportNoNamedAsDefaultMember(_) => ImportNoNamedAsDefaultMember::documentation(),
@@ -7816,8 +7818,10 @@ impl RuleEnum {
                 .or_else(|| ImportNoDynamicRequire::schema(generator)),
             Self::ImportNoEmptyNamedBlocks(_) => ImportNoEmptyNamedBlocks::config_schema(generator)
                 .or_else(|| ImportNoEmptyNamedBlocks::schema(generator)),
-            Self::ImportNoExtraneousDependencies(_) => ImportNoExtraneousDependencies::config_schema(generator)
-                .or_else(|| ImportNoExtraneousDependencies::schema(generator)),
+            Self::ImportNoExtraneousDependencies(_) => {
+                ImportNoExtraneousDependencies::config_schema(generator)
+                    .or_else(|| ImportNoExtraneousDependencies::schema(generator))
+            }
             Self::ImportNoMutableExports(_) => ImportNoMutableExports::config_schema(generator)
                 .or_else(|| ImportNoMutableExports::schema(generator)),
             Self::ImportNoNamedAsDefault(_) => ImportNoNamedAsDefault::config_schema(generator)
@@ -16616,7 +16620,9 @@ impl RuleEnum {
             Self::ImportNoDuplicates(_) => ImportNoDuplicates::IS_TSGOLINT_RULE,
             Self::ImportNoDynamicRequire(_) => ImportNoDynamicRequire::IS_TSGOLINT_RULE,
             Self::ImportNoEmptyNamedBlocks(_) => ImportNoEmptyNamedBlocks::IS_TSGOLINT_RULE,
-            Self::ImportNoExtraneousDependencies(_) => ImportNoExtraneousDependencies::IS_TSGOLINT_RULE,
+            Self::ImportNoExtraneousDependencies(_) => {
+                ImportNoExtraneousDependencies::IS_TSGOLINT_RULE
+            }
             Self::ImportNoMutableExports(_) => ImportNoMutableExports::IS_TSGOLINT_RULE,
             Self::ImportNoNamedAsDefault(_) => ImportNoNamedAsDefault::IS_TSGOLINT_RULE,
             Self::ImportNoNamedAsDefaultMember(_) => ImportNoNamedAsDefaultMember::IS_TSGOLINT_RULE,
