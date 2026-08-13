@@ -955,6 +955,7 @@ export interface DummyRuleMap {
   "import/no-duplicates"?: RuleNoConfig | [AllowWarnDeny, NoDuplicates];
   "import/no-dynamic-require"?: RuleNoConfig | [AllowWarnDeny, NoDynamicRequire];
   "import/no-empty-named-blocks"?: RuleNoConfig;
+  "import/no-extraneous-dependencies"?: RuleNoConfig | [AllowWarnDeny, NoExtraneousDependenciesConfig];
   "import/no-mutable-exports"?: RuleNoConfig;
   "import/no-named-as-default"?: RuleNoConfig;
   "import/no-named-as-default-member"?: RuleNoConfig;
@@ -2251,6 +2252,16 @@ export interface NoDynamicRequire {
    * When `true`, also check `import()` expressions for dynamic module specifiers.
    */
   esmodule?: boolean;
+}
+export interface NoExtraneousDependenciesConfig {
+  bundledDependencies?: boolean | string[];
+  devDependencies?: boolean | string[];
+  includeInternal?: boolean;
+  includeTypes?: boolean;
+  optionalDependencies?: boolean | string[];
+  packageDir?: string | string[];
+  peerDependencies?: boolean | string[];
+  whitelist?: string[];
 }
 export interface NoNamespaceConfig {
   /**

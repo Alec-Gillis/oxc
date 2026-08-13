@@ -2916,6 +2916,26 @@
         "import/no-empty-named-blocks": {
           "$ref": "#/definitions/RuleNoConfig"
         },
+        "import/no-extraneous-dependencies": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RuleNoConfig"
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "$ref": "#/definitions/AllowWarnDeny"
+                },
+                {
+                  "$ref": "#/definitions/NoExtraneousDependenciesConfig"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2
+            }
+          ]
+        },
         "import/no-mutable-exports": {
           "$ref": "#/definitions/RuleNoConfig"
         },
@@ -14116,6 +14136,45 @@
           "type": "boolean",
           "markdownDescription": "When `true`, also check `import()` expressions for dynamic module specifiers."
         }
+      },
+      "additionalProperties": false
+    },
+    "NoExtraneousDependenciesConfig": {
+      "type": "object",
+      "properties": {
+        "bundledDependencies": {
+          "anyOf": [
+            { "type": "boolean" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "devDependencies": {
+          "anyOf": [
+            { "type": "boolean" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "includeInternal": { "type": "boolean", "default": false },
+        "includeTypes": { "type": "boolean", "default": false },
+        "optionalDependencies": {
+          "anyOf": [
+            { "type": "boolean" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "packageDir": {
+          "anyOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "peerDependencies": {
+          "anyOf": [
+            { "type": "boolean" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "whitelist": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },
